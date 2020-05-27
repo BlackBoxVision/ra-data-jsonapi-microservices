@@ -8,6 +8,28 @@ export type MicroServiceConfig = {
   [resource: string]: string;
 };
 
+export type JsonApiData = {
+  /**
+   * Entity ID
+   */
+  id?: number | string;
+  /**
+   * Entity related attributes
+   */
+  attributes?: any;
+};
+
+const HttpMethods = {
+  POST: 'POST',
+  PATCH: 'PATCH',
+  DELETE: 'DELETE',
+};
+
+const mapResponse = ({ id, attributes }: JsonApiData) => ({
+  id,
+  ...attributes,
+});
+
 /**
  * Maps react-admin queries to a Micro Services API
  *
@@ -42,115 +64,131 @@ export const microServicesJsonApiProvider = (
 ): DataProvider => ({
   getList: (resource, params) => {
     const { page, perPage } = params.pagination;
-    const { field, order } = params.sort;
-    const query = {
-      sort: JSON.stringify([field, order]),
-      range: JSON.stringify([(page - 1) * perPage, page * perPage - 1]),
-      filter: JSON.stringify(params.filter),
+
+    // Create query with pagination params
+    const query: any = {
+      'page[number]': page,
+      'page[size]': perPage,
     };
 
+    // Add all filter params to query
+    Object.values(params.filter || {}).forEach(([key, value]) => {
+      query[`filter[${key}]`] = value;
+    });
+
+    // Add sort parameters
+    if (params.sort && params.sort.field) {
+      const prefix = params.sort.order === 'ASC' ? '' : '-';
+      query.sort = `${prefix}${params.sort.field}`;
+    }
+
     return httpClient(`${config[resource]}?${stringify(query)}`).then(
-      ({ headers, json }) => {
-        if (!headers.has('content-range')) {
-          throw new Error(
-            'The Content-Range header is missing in the HTTP Response. The simple REST data provider expects responses for lists of resources to contain this header with the total number of results to build the pagination. If you are using CORS, did you declare Content-Range in the Access-Control-Expose-Headers header?',
-          );
-        }
-
-        const contentRange = headers.get('content-range');
-        let total = '10';
-
-        if (contentRange) {
-          total = contentRange.split('/').pop() as any;
-        }
-
+      ({ json }) => {
         return {
-          data: json,
-          total: parseInt(total, 10),
+          total: json.meta.count,
+          data: json.data.map((item: any) => mapResponse(item)),
         };
       },
     );
   },
+
   getOne: (resource, params) =>
     httpClient(`${config[resource]}/${params.id}`).then(({ json }) => ({
-      data: json,
+      data: mapResponse(json.data),
     })),
+
   getMany: (resource, params) => {
     const query = {
-      filter: JSON.stringify({ id: params.ids }),
-    };
-
-    return httpClient(
-      `${config[resource]}?${stringify(query)}`,
-    ).then(({ json }) => ({ data: json }));
-  },
-  getManyReference: (resource, params) => {
-    const { page, perPage } = params.pagination;
-    const { field, order } = params.sort;
-    const query = {
-      sort: JSON.stringify([field, order]),
-      range: JSON.stringify([(page - 1) * perPage, page * perPage - 1]),
-      filter: JSON.stringify({
-        ...params.filter,
-        [params.target]: params.id,
-      }),
+      'filter[id]': `in:${params.ids.join(',')}`,
     };
 
     return httpClient(`${config[resource]}?${stringify(query)}`).then(
-      ({ headers, json }) => {
-        if (!headers.has('content-range')) {
-          throw new Error(
-            'The Content-Range header is missing in the HTTP Response. The simple REST data provider expects responses for lists of resources to contain this header with the total number of results to build the pagination. If you are using CORS, did you declare Content-Range in the Access-Control-Expose-Headers header?',
-          );
-        }
+      ({ json }) => ({
+        total: json.meta.count,
+        data: json.data.map((item: any) => mapResponse(item)),
+      }),
+    );
+  },
 
-        const contentRange = headers.get('content-range');
-        let total = '10';
+  getManyReference: (resource, params) => {
+    const { page, perPage } = params.pagination;
 
-        if (contentRange) {
-          total = contentRange.split('/').pop() as any;
-        }
+    // Create query with pagination params
+    const query: any = {
+      'page[number]': page,
+      'page[size]': perPage,
+    };
 
+    // Add all filter params to query
+    Object.values(params.filter || {}).forEach(([key, value]) => {
+      query[`filter[${key}]`] = value;
+    });
+
+    // Add the reference id to the filter params
+    query[`filter[${params.target}]`] = params.id;
+
+    return httpClient(`${config[resource]}?${stringify(query)}`).then(
+      ({ json }) => {
         return {
-          data: json,
-          total: parseInt(total, 10),
+          total: json.meta.count,
+          data: json.data.map((item: any) => mapResponse(item)),
         };
       },
     );
   },
+
   update: (resource, params) =>
     httpClient(`${config[resource]}/${params.id}`, {
-      method: 'PUT',
-      body: JSON.stringify(params.data),
-    }).then(({ json }) => ({ data: json })),
-  // simple-rest doesn't handle provide an updateMany route, so we fallback to calling update n times instead
+      method: HttpMethods.PATCH,
+      body: JSON.stringify({
+        data: {
+          id: params.id,
+          type: resource,
+          attributes: params.data,
+        },
+      }),
+    }).then(({ json }) => ({
+      data: mapResponse(json.data),
+    })),
+
   updateMany: (resource, params) =>
     Promise.all(
       params.ids.map((id) =>
         httpClient(`${config[resource]}/${id}`, {
-          method: 'PUT',
+          method: HttpMethods.PATCH,
           body: JSON.stringify(params.data),
         }),
       ),
-    ).then((responses) => ({ data: responses.map(({ json }) => json.id) })),
+    ).then((responses) => ({
+      data: responses.map(({ json }) => json.data.id),
+    })),
+
   create: (resource, params) =>
     httpClient(`${config[resource]}`, {
-      method: 'POST',
-      body: JSON.stringify(params.data),
+      method: HttpMethods.POST,
+      body: JSON.stringify({
+        data: {
+          type: resource,
+          attributes: params.data,
+        },
+      }),
     }).then(({ json }) => ({
-      data: { ...params.data, id: json.id },
+      data: mapResponse(json.data),
     })),
+
   delete: (resource, params) =>
     httpClient(`${config[resource]}/${params.id}`, {
-      method: 'DELETE',
-    }).then(({ json }) => ({ data: json })),
-  // simple-rest doesn't handle filters on DELETE route, so we fallback to calling DELETE n times instead
+      method: HttpMethods.DELETE,
+    }).then(({ json }) => ({ data: { id: json.data.id } })),
+
   deleteMany: (resource, params) =>
     Promise.all(
       params.ids.map((id) =>
         httpClient(`${config[resource]}/${id}`, {
-          method: 'DELETE',
+          method: HttpMethods.DELETE,
         }),
       ),
-    ).then((responses) => ({ data: responses.map(({ json }) => json.id) })),
+    ).then((responses) => ({
+      data: responses.map(({ json }) => json.data.id),
+    })),
 });
