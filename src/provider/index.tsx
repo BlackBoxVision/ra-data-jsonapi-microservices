@@ -98,16 +98,11 @@ export const microServicesJsonApiProvider = (
     })),
 
   getMany: (resource, params) => {
-    const query = {
-      'filter[id]': `in:${params.ids.join(',')}`,
-    };
-
-    return httpClient(`${config[resource]}?${stringify(query)}`).then(
-      ({ json }) => ({
-        total: json.meta.count,
-        data: json.data.map((item: any) => mapResponse(item)),
-      }),
-    );
+    return Promise.all(
+      params.ids.map((id) => httpClient(`${config[resource]}/${id}`)),
+    ).then((responses) => ({
+      data: responses.map(({ json }) => mapResponse(json.data)),
+    }));
   },
 
   getManyReference: (resource, params) => {
