@@ -72,7 +72,7 @@ export const microServicesJsonApiProvider = (
     };
 
     // Add all filter params to query
-    Object.values(params.filter || {}).forEach(([key, value]) => {
+    Object.entries(params.filter || {}).forEach(([key, value]) => {
       query[`filter[${key}]`] = value;
     });
 
@@ -120,7 +120,7 @@ export const microServicesJsonApiProvider = (
     };
 
     // Add all filter params to query
-    Object.values(params.filter || {}).forEach(([key, value]) => {
+    Object.entries(params.filter || {}).forEach(([key, value]) => {
       query[`filter[${key}]`] = value;
     });
 
