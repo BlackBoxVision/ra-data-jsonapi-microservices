@@ -1,6 +1,6 @@
 {
   "name": "@blackbox-vision/ra-data-jsonapi-microservices",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "React Admin data provider with support for microservices using JSON API",
   "main": "index.js",
   "scripts": {
